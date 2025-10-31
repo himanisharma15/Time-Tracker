@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ForgotPasswordModal from '../components/ForgotPasswordModal'
 
@@ -8,7 +8,18 @@ export default function Login() {
   const [remember, setRemember] = useState(false)
   const [errors, setErrors] = useState({})
   const [showPassword, setShowPassword] = useState(false)
+  const [successMessage, setSuccessMessage] = useState('')
   const navigate = useNavigate()
+  
+  // Check for signup success message
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    if (urlParams.get('signup') === 'success') {
+      setSuccessMessage('Account created successfully! Please login with your credentials.')
+      // Clean up URL
+      window.history.replaceState({}, document.title, '/login')
+    }
+  }, [])
   const STORAGE_KEY = 'tt:user'
   const PWD_KEY = 'tt:password'
   // Allow overriding the API base (useful when serving the frontend without Vite
@@ -28,43 +39,46 @@ export default function Login() {
 
     setErrors(next)
     if (Object.keys(next).length === 0) {
-      // Try backend login first
-      fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password })
-      }).then(async res => {
-        if (res.ok) {
-          try { localStorage.setItem('tt:auth', '1') } catch {}
-          window.dispatchEvent(new Event('authChanged'))
-          navigate('/')
-        } else {
-          const body = await res.json().catch(()=>({ error: 'Login failed' }))
-          console.warn('Login failed response', body)
-          setErrors({ general: body.error || 'Login failed' })
-        }
-      }).catch(err => {
-        console.warn('Login request error', err)
-        // fallback to localStorage-based demo auth if backend unreachable
-        let storedUser = null
-        try { storedUser = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') } catch { storedUser = null }
-        const storedPwd = (() => { try { return localStorage.getItem(PWD_KEY) || '' } catch { return '' } })()
-        if (!storedUser) {
+      try {
+        // Check localStorage for user account
+        const storedUser = localStorage.getItem(STORAGE_KEY)
+        const storedPassword = localStorage.getItem(PWD_KEY)
+        
+        if (!storedUser || !storedPassword) {
           setErrors({ general: 'No account found. Please sign up first.' })
           return
         }
-        if ((storedUser.email || '').toLowerCase() !== (email || '').toLowerCase()) {
+        
+        const userData = JSON.parse(storedUser)
+        
+        // Validate email
+        if (userData.email.toLowerCase() !== email.trim().toLowerCase()) {
           setErrors({ email: 'Email does not match any account' })
           return
         }
-        if (password !== storedPwd) {
+        
+        // Validate password
+        if (password !== storedPassword) {
           setErrors({ password: 'Incorrect password' })
           return
         }
-        try { localStorage.setItem('tt:auth', '1') } catch {}
+        
+        // Successful login
+        localStorage.setItem('tt:auth', '1')
+        localStorage.setItem('tt:currentUser', JSON.stringify(userData))
+        
+        console.log('Login successful')
+        
+        // Trigger auth change event for other components
         window.dispatchEvent(new Event('authChanged'))
+        
+        // Navigate to dashboard
         navigate('/')
-      })
+        
+      } catch (error) {
+        console.error('Login error:', error)
+        setErrors({ general: 'Login failed. Please try again.' })
+      }
     }
   }
 
@@ -85,6 +99,7 @@ export default function Login() {
         </div>
 
         <form onSubmit={submit} noValidate>
+          {successMessage && <div className="success-text" style={{marginBottom:8, color:'#22c55e', backgroundColor:'#dcfce7', padding:'8px', borderRadius:'4px', border:'1px solid #22c55e'}}>{successMessage}</div>}
           {errors.general && <div className="error-text" style={{marginBottom:8}}>{errors.general}</div>}
           <label>
             Email

@@ -25,27 +25,37 @@ export default function Signup() {
 
     setErrors(next)
     if (Object.keys(next).length === 0) {
-      // Try to call backend API first
-      fetch(`${API_BASE}/auth/signup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), password, account })
-      }).then(async res => {
-        if (res.ok) {
-          // on success navigate to login
-          navigate('/login')
-        } else {
-          const body = await res.json().catch(()=>({ error: 'Signup failed' }))
-          console.warn('Signup failed response', body)
-          setErrors({ general: body.error || 'Signup failed' })
+      try {
+        // Check if user already exists
+        const existingUser = localStorage.getItem(STORAGE_KEY)
+        if (existingUser) {
+          const userData = JSON.parse(existingUser)
+          if (userData.email.toLowerCase() === email.trim().toLowerCase()) {
+            setErrors({ email: 'An account with this email already exists. Please login instead.' })
+            return
+          }
         }
-      }).catch(err => {
-        console.warn('Signup request error', err)
-        // if backend unreachable, fall back to localStorage behavior
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: name.trim(), email: email.trim(), account })) } catch {}
-        try { localStorage.setItem(PWD_KEY, password) } catch {}
-        navigate('/login')
-      })
+
+        // Save user data to localStorage
+        const userData = { 
+          name: name.trim(), 
+          email: email.trim(), 
+          account,
+          createdAt: new Date().toISOString()
+        }
+        
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(userData))
+        localStorage.setItem(PWD_KEY, password)
+        
+        console.log('User account created successfully')
+        
+        // Navigate to login with success message
+        navigate('/login?signup=success')
+        
+      } catch (error) {
+        console.error('Error creating account:', error)
+        setErrors({ general: 'Failed to create account. Please try again.' })
+      }
     }
   }
 
