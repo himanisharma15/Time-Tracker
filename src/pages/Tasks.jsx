@@ -21,25 +21,31 @@ export default function Tasks() {
     ? import.meta.env.VITE_API_BASE
     : '/api'
 
-  // Load tasks from backend on mount
+  // Load tasks from localStorage on mount
   useEffect(() => {
     fetchTasks()
   }, [])
 
-  const fetchTasks = async () => {
+  const fetchTasks = () => {
     try {
-      const res = await fetch(`${API_BASE}/tasks`, {
-        headers: { 'x-user-id': 'demo-user' }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setTasks(data.tasks || [])
+      const storedTasks = localStorage.getItem('tt:tasks')
+      if (storedTasks) {
+        const parsedTasks = JSON.parse(storedTasks)
+        setTasks(parsedTasks)
       }
     } catch (err) {
       console.error('Failed to fetch tasks:', err)
       // Keep empty array on error
     } finally {
       setLoading(false)
+    }
+  }
+
+  const saveTasks = (tasksToSave) => {
+    try {
+      localStorage.setItem('tt:tasks', JSON.stringify(tasksToSave))
+    } catch (err) {
+      console.error('Failed to save tasks:', err)
     }
   }
 
@@ -114,20 +120,14 @@ export default function Tasks() {
       setTasks(prev => {
         const updated = prev.map(t => (t.running ? { ...t, seconds: t.seconds + 1 } : t))
 
-        // Update backend for running tasks every 10 seconds
-        updated.forEach(t => {
-          if (t.running && t.seconds % 10 === 0) {
-            fetch(`${API_BASE}/tasks/${t._id || t.id}`, {
-              method: 'PUT',
-              headers: { 
-                'Content-Type': 'application/json',
-                'x-user-id': 'demo-user'
-              },
-              body: JSON.stringify({ seconds: t.seconds })
-            }).catch(err => console.error('Failed to sync task time:', err))
-          }
+        // Save to localStorage every 10 seconds for running tasks
+        const hasRunningTasks = updated.some(t => t.running)
+        if (hasRunningTasks) {
+          saveTasks(updated)
+        }
 
-          // If task has an estimate (in minutes), notify when elapsed >= estimate
+        // If task has an estimate (in minutes), notify when elapsed >= estimate
+        updated.forEach(t => {
           try {
             const est = parseEstimateMinutes(t.estimate)
             if (est > 0 && t.seconds >= est * 60 && !notifiedRef.current.has(t._id || t.id)) {
@@ -149,8 +149,19 @@ export default function Tasks() {
   useEffect(() => {
     if (location && location.state && location.state.quickStart) {
       setTasks(prev => {
-        const id = Math.max(0, ...prev.map(t => t.id)) + 1
-        return [...prev, { id, name: 'Quick Session', project: 'Quick', status: 'In Progress', seconds: 0, running: true }]
+        const id = Math.max(0, ...prev.map(t => t.id || 0)) + 1
+        const quickTask = { 
+          id, 
+          name: 'Quick Session', 
+          project: 'Quick', 
+          status: 'In Progress', 
+          seconds: 0, 
+          running: true,
+          createdAt: new Date().toISOString()
+        }
+        const updated = [...prev, quickTask]
+        saveTasks(updated)
+        return updated
       })
       // clear navigation state so repeated mounts don't duplicate
       try {
@@ -161,80 +172,54 @@ export default function Tasks() {
     }
   }, [location, navigate])
 
-  const toggleTimer = async id => {
+  const toggleTimer = id => {
     const task = tasks.find(t => t._id === id || t.id === id)
     if (!task) return
     
     const newRunning = !task.running
-    setTasks(prev => prev.map(t => (t._id === id || t.id === id) ? { ...t, running: newRunning } : t))
-    
-    // Update backend
-    try {
-      await fetch(`${API_BASE}/tasks/${task._id || task.id}`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-user-id': 'demo-user'
-        },
-        body: JSON.stringify({ running: newRunning })
-      })
-    } catch (err) {
-      console.error('Failed to toggle timer:', err)
-    }
+    setTasks(prev => {
+      const updated = prev.map(t => (t._id === id || t.id === id) ? { ...t, running: newRunning } : t)
+      saveTasks(updated)
+      return updated
+    })
   }
 
-  const stopTimer = async id => {
+  const stopTimer = id => {
     const task = tasks.find(t => t._id === id || t.id === id)
     if (!task) return
     
-    setTasks(prev => prev.map(t => (t._id === id || t.id === id) ? { ...t, running: false } : t))
-    
-    // Update backend
-    try {
-      await fetch(`${API_BASE}/tasks/${task._id || task.id}`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-user-id': 'demo-user'
-        },
-        body: JSON.stringify({ running: false })
-      })
-    } catch (err) {
-      console.error('Failed to stop timer:', err)
-    }
+    setTasks(prev => {
+      const updated = prev.map(t => (t._id === id || t.id === id) ? { ...t, running: false } : t)
+      saveTasks(updated)
+      return updated
+    })
   }
 
-  const addOrSave = async data => {
+  const addOrSave = data => {
     try {
       if (data._id || data.id) {
         // Update existing task
         const taskId = data._id || data.id
-        const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
-          method: 'PUT',
-          headers: { 
-            'Content-Type': 'application/json',
-            'x-user-id': 'demo-user'
-          },
-          body: JSON.stringify(data)
+        setTasks(prev => {
+          const updated = prev.map(t => (t._id === taskId || t.id === taskId) ? { ...t, ...data } : t)
+          saveTasks(updated)
+          return updated
         })
-        if (res.ok) {
-          const result = await res.json()
-          setTasks(prev => prev.map(t => (t._id === taskId || t.id === taskId) ? result.task : t))
-        }
       } else {
         // Create new task
-        const res = await fetch(`${API_BASE}/tasks`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'x-user-id': 'demo-user'
-          },
-          body: JSON.stringify({ ...data, seconds: 0, running: false, status: data.status || 'Pending' })
-        })
-        if (res.ok) {
-          const result = await res.json()
-          setTasks(prev => [...prev, result.task])
+        const newTask = { 
+          ...data, 
+          id: Date.now(), // Simple ID generation
+          seconds: 0, 
+          running: false, 
+          status: data.status || 'Pending',
+          createdAt: new Date().toISOString()
         }
+        setTasks(prev => {
+          const updated = [...prev, newTask]
+          saveTasks(updated)
+          return updated
+        })
       }
     } catch (err) {
       console.error('Failed to save task:', err)

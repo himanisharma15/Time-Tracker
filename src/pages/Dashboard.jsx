@@ -38,14 +38,11 @@ export default function Dashboard() {
     return `${days} ${days === 1 ? 'day' : 'days'} ago`
   }
 
-  const fetchDashboardStats = async () => {
+  const fetchDashboardStats = () => {
     try {
-      const res = await fetch(`${API_BASE}/tasks`, {
-        headers: { 'x-user-id': 'demo-user' }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        const tasks = data.tasks || []
+      // Get tasks from localStorage
+      const storedTasks = localStorage.getItem('tt:tasks')
+      const tasks = storedTasks ? JSON.parse(storedTasks) : []
         
         // Calculate stats
         const totalTasks = tasks.length
@@ -147,7 +144,7 @@ export default function Dashboard() {
           avgDailyTime,
           productivityChange
         })
-      }
+        
     } catch (err) {
       console.error('Failed to fetch dashboard stats:', err)
     } finally {
